@@ -44,7 +44,7 @@ Copy [`.github/workflows/ai-pr-review.yml`](.github/workflows/ai-pr-review.yml) 
 2. Sign up or log in to your account
 3. Navigate to [ampcode.com/settings](https://ampcode.com/settings)
 4. Generate a new API key
-5. Copy the API key (it will look like `amp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`)
+5. Copy the API key (it will look like `sgamp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`)
 
 #### For Claude Code
 1. Visit [console.anthropic.com](https://console.anthropic.com)
