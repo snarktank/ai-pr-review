@@ -24,6 +24,8 @@ A robust GitHub Actions workflow that provides AI-powered code reviews using [Am
 
 Copy [`.github/workflows/ai-pr-review.yml`](.github/workflows/ai-pr-review.yml) to your repository's `.github/workflows/` directory.
 
+**Important:** You must commit this workflow file to your main branch first before it will be able to run on pull requests.
+
 ### 2. Add Your API Key
 
 Set your API key as a repository secret:
