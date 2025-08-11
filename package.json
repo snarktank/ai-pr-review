@@ -1,0 +1,31 @@
+{
+  "name": "ai-pr-review-workflow",
+  "version": "1.0.0",
+  "description": "A robust GitHub Actions workflow that provides AI-powered code reviews using Amp",
+  "main": ".github/workflows/ai-pr-review.yml",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/snarktank/ai-pr-review-workflow.git"
+  },
+  "keywords": [
+    "github-actions",
+    "ai",
+    "code-review",
+    "amp",
+    "pull-request",
+    "automation",
+    "workflow"
+  ],
+  "author": "Ryan Carson",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/snarktank/ai-pr-review-workflow/issues"
+  },
+  "homepage": "https://github.com/snarktank/ai-pr-review-workflow#readme",
+  "scripts": {
+    "test": "echo \"See CONTRIBUTING.md for testing instructions\" && exit 0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

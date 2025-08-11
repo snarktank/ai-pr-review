@@ -1,0 +1,228 @@
+name: AI PR Review 
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+env:
+  # Change to APPROVE / REQUEST_CHANGES / COMMENT
+  REVIEW_EVENT: COMMENT
+  # Configure which CLI to run for the review. Default is amp execute mode.
+  REVIEW_CLI_BIN: amp
+  REVIEW_CLI_ARGS: -x
+  # Tweak to your liking  
+  SYSTEM_PROMPT: |
+    Review this patch like a thoughtful senior engineer.
+    Prioritize correctness, security, performance, readability, and tests.
+    Be concise and constructive. Praise good changes. Group related issues.
+    Consult the oracle. Make sure that the changes match the conventions in AGENT.md
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Verify tools
+        run: |
+          node -v
+          npm -v
+          jq --version
+          curl --version
+
+      - name: Install review CLI if missing (defaults to amp)
+        run: |
+          set -euo pipefail
+          if ! command -v "$REVIEW_CLI_BIN" >/dev/null 2>&1; then
+            if [ "$REVIEW_CLI_BIN" = "amp" ]; then
+              echo "Installing amp via npm..."
+              npm install -g @sourcegraph/amp || {
+                echo "npm install failed; trying curl installer..." >&2
+                curl -fsSL https://ampcode.com/install.sh | bash
+              }
+              command -v amp >/dev/null 2>&1 || { echo "amp not found after install" >&2; exit 1; }
+              amp --version
+            elif [ "$REVIEW_CLI_BIN" = "claude" ]; then
+              echo "Installing claude via npm..."
+              npm install -g @anthropic-ai/claude-code
+              command -v claude >/dev/null 2>&1 || { echo "claude not found after install" >&2; exit 1; }
+              claude --version || true
+            else
+              echo "Configured REVIEW_CLI_BIN=$REVIEW_CLI_BIN not found on PATH. Please ensure it is preinstalled." >&2
+              exit 1
+            fi
+          else
+            "$REVIEW_CLI_BIN" --version || true
+          fi
+
+
+      - name: Gather PR context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Set for this step and export for later steps
+          PR="${{ github.event.pull_request.number }}"
+          SHA="${{ github.event.pull_request.head.sha }}"
+          echo "PR=$PR" >> "$GITHUB_ENV"
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+
+          # Use explicit repo + PR number in detached HEAD context
+          gh pr view "$PR" --repo "${{ github.repository }}" --json number,title,body,author,baseRefName,headRefName,url > pr.json
+          gh pr diff "$PR" --repo "${{ github.repository }}" --patch > diff.patch
+
+      - name: Run AI review
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AMP_API_KEY: ${{ secrets.AMP_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Map AI_API_KEY to vendor-specific vars when missing
+          export AMP_API_KEY="${AMP_API_KEY:-${AI_API_KEY:-}}"
+          export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-${AI_API_KEY:-}}"
+          # Mask API keys in logs just in case
+          if [ -n "${AI_API_KEY:-}" ]; then echo "::add-mask::${AI_API_KEY}"; fi
+          if [ -n "${AMP_API_KEY:-}" ]; then echo "::add-mask::${AMP_API_KEY}"; fi
+          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then echo "::add-mask::${ANTHROPIC_API_KEY}"; fi
+
+          # Compose the instruction sent to cli (ask for JSON, but don't hard-fail if it adds prose)
+          INSTRUCTION=$(cat <<'EOF'
+          You are performing a single-pass human-style PR review.
+
+          Inputs:
+          - You will receive a unified diff (the PR patch) via stdin.
+          - Use GitHub PR diff positions (not absolute line numbers) for inline notes.
+          - Comment only on added lines; avoid spam.
+
+          Output:
+          - Return a single JSON object with the following shape (no explanations needed):
+            {
+              "summaryMarkdown": string,
+              "comments": [ { "path": string, "position": integer, "body": string } ],
+              "status": { "state": "success" | "failure", "description": string }
+            }
+          - Choose "failure" when issues require follow-up before merge; otherwise "success".
+          EOF
+          )
+
+          # Run CLI in execute mode: diff on stdin, instruction as the message
+          # Save the full output (may include prose) so we can extract JSON robustly
+          echo "Running initial AI review..."
+          cat diff.patch | timeout 300 "$REVIEW_CLI_BIN" $REVIEW_CLI_ARGS "${SYSTEM_PROMPT}
+
+          ${INSTRUCTION}" > cli.out || {
+            echo "First AI call failed or timed out, creating fallback response"
+            echo '{"summaryMarkdown":"## Summary\nAI review timed out or failed.","comments":[],"status":{"state":"success","description":"AI Review completed with timeout"}}' > cli.json
+            jq -r '.summaryMarkdown' cli.json > review.md
+            jq -c '.comments' cli.json > comments.json
+            jq -c '.status' cli.json > status.json
+            exit 0
+          }
+
+          echo "First AI call completed, extracting JSON..."
+          echo "--- CLI Output (first 500 chars) ---"
+          head -c 500 cli.out
+          echo -e "\n--- End CLI Output Preview ---"
+
+          # Try multiple JSON extraction methods since amp output is non-deterministic
+          echo "Extracting JSON from CLI output (trying multiple methods)..."
+          
+          # Method 1: Try raw output as JSON
+          echo "Method 1: Testing raw output as JSON..."
+          if jq -e . cli.out >/dev/null 2>&1; then
+            echo "Raw output is valid JSON!"
+            cp cli.out cli.json
+          # Method 2: Try extracting from markdown fences  
+          elif grep -q '```json' cli.out; then
+            echo "Method 2: Found markdown JSON fences, extracting..."
+            sed -n '/```json/,/```/p' cli.out | sed '1d;$d' > cli.json.tmp
+            if jq -e . cli.json.tmp >/dev/null 2>&1; then
+              echo "Markdown extraction successful!"
+              mv cli.json.tmp cli.json
+            else
+              echo "Markdown extraction failed, trying method 3..."
+              rm -f cli.json.tmp
+            fi
+          fi
+          
+          # Method 3: Use amp to extract JSON if methods 1-2 failed
+          if [ ! -f cli.json ] || ! jq -e . cli.json >/dev/null 2>&1; then
+            echo "Method 3: Using amp to extract JSON..."
+            timeout 120 bash -c 'cat cli.out | "$0" $1 "$2" > cli.json.tmp' "$REVIEW_CLI_BIN" "$REVIEW_CLI_ARGS" "Extract the first valid JSON object from this text that has keys summaryMarkdown, comments, and status. Output only the JSON object, no other text." && mv cli.json.tmp cli.json || {
+              echo "Amp extraction failed, creating fallback response"
+              echo '{"summaryMarkdown":"## Summary\nJSON extraction failed.","comments":[],"status":{"state":"success","description":"AI Review completed with extraction failure"}}' > cli.json
+            }
+          fi
+
+          echo "Final validation of extracted JSON..."
+          echo "--- First 200 chars of extracted JSON ---"
+          head -c 200 cli.json
+          echo -e "\n--- End JSON Preview ---"
+
+          # Final validation and fallback
+          jq -e . cli.json >/dev/null 2>&1 || { 
+            echo "All JSON extraction methods failed, using fallback" >&2
+            echo '{"summaryMarkdown":"## Summary\nInvalid JSON generated.","comments":[],"status":{"state":"success","description":"AI Review completed with invalid JSON"}}' > cli.json
+          }
+
+          jq -r '.summaryMarkdown // "## Summary\n_AI did not return a summary._"' cli.json > review.md
+          jq -c '.comments // []' cli.json > comments.json
+          jq -c '.status // {"state":"success","description":"AI Review completed"}' cli.json > status.json
+
+      - name: Post single PR review (summary + inline notes)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Build review payload with body + comments array
+          # (The Create a review API expects: { body, event, comments: [{path, position, body}, ...] })
+          # Cap inline comments to first 300 to avoid API limits
+          jq '.[0:300]' comments.json > comments.limited.json
+          jq -n \
+            --arg event "${REVIEW_EVENT}" \
+            --arg body "$(cat review.md)" \
+            --argjson comments "$(cat comments.limited.json)" \
+            '{ event: $event, body: $body, comments: $comments }' > review_payload.json
+
+          # Post the review
+          gh api \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${{ github.repository }}/pulls/$PR/reviews" \
+            --input review_payload.json
+
+      - name: Set commit status from AI StatusJSON
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Guard: create a default status if missing
+          if [ ! -f status.json ]; then
+            echo '{"state":"success","description":"AI Review completed"}' > status.json
+          fi
+          STATE=$(jq -r '.state // "success"' status.json)
+          DESC=$(jq -r '.description // "AI Review completed"' status.json)
+          gh api \
+            -X POST \
+            repos/${{ github.repository }}/statuses/${SHA} \
+            -f state="$STATE" \
+            -f context="AI PR Review" \
+            -f description="$DESC"
