@@ -100,27 +100,8 @@ jobs:
           if [ -n "${AMP_API_KEY:-}" ]; then echo "::add-mask::${AMP_API_KEY}"; fi
           if [ -n "${ANTHROPIC_API_KEY:-}" ]; then echo "::add-mask::${ANTHROPIC_API_KEY}"; fi
 
-          # Compose the instruction sent to cli (ask for JSON, but don't hard-fail if it adds prose)
-          INSTRUCTION=$(cat <<'EOF'
-          You are performing a single-pass human-style PR review.
-
-          Inputs:
-          - You will receive a unified diff (the PR patch) via stdin.
-          - Use GitHub PR diff positions (not absolute line numbers) for inline notes.
-          - Comment only on added lines; avoid spam.
-
-          Output:
-          - Return a single JSON object with the following shape (no explanations needed):
-            {
-              "summaryMarkdown": string,
-              "comments": [ { "path": string, "position": integer, "body": string } ],
-              "status": { "state": "success" | "failure", "description": string }
-            }
-          - Choose "failure" when issues require follow-up before merge; otherwise "success".
-          - Keep status description under 120 characters (GitHub limit is 140).
-          - Do not use emoji in any part of the response.
-          EOF
-          )
+          # Simple test instruction to debug amp issues
+          INSTRUCTION="Please review this code diff and return JSON: {\"summary\": \"test\", \"status\": \"success\"}"
 
           # Run CLI in execute mode: diff on stdin, instruction as the message
           # Save the full output (may include prose) so we can extract JSON robustly
