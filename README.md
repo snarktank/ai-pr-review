@@ -1,54 +1,53 @@
 # AI PR Review Workflow
 
-A robust GitHub Actions workflow that provides AI-powered code reviews using [Amp](https://ampcode.com). Get intelligent, context-aware feedback on your pull requests automatically.
+A robust GitHub Actions workflow that provides AI-powered code reviews using [Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Get intelligent, context-aware feedback on your pull requests automatically.
 
-## ✨ Features
+## Table of Contents
+- [Quick Start](#-quick-start)
+- [Configuration](#-configuration-options)
+- [Advanced Usage](#advanced-configuration)
+- [Requirements](#-requirements)
+- [Troubleshooting](#-troubleshooting)
+- [Contributing](#-contributing)
 
-- **Smart Reviews**: Uses Amp's advanced AI capabilities including oracle consultation for deep analysis
+## Features
+
+- **Smart Reviews**: Advanced AI analysis with context-aware feedback
 - **Robust Error Handling**: Multiple JSON extraction methods, timeouts, and fallback mechanisms
 - **Secure**: Proper secret masking, minimal permissions, and configurable security options  
 - **Flexible**: Configurable review behavior (comment, approve, request changes)
 - **Reliable**: Handles non-deterministic AI responses with multiple parsing strategies
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Add the Workflow
 
 Copy [`.github/workflows/ai-pr-review.yml`](.github/workflows/ai-pr-review.yml) to your repository's `.github/workflows/` directory.
 
-### 2. Set up Secrets
+### 2. Add Your API Key
 
-Add your AI API key to your repository secrets:
+Set your API key as a repository secret:
 
-**For Amp (default):**
-1. Go to your repository → Settings → Secrets and variables → Actions
-2. Click "New repository secret"
-3. Name: `AMP_API_KEY`
-4. Value: Your Amp API key from [ampcode.com](https://ampcode.com)
+| AI Provider | Secret Name | Get API Key |
+|-------------|-------------|-------------|
+| **Amp (default)** | `AMP_API_KEY` | [ampcode.com](https://ampcode.com) |
+| **Claude Code** | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
 
-**For Claude Code:**
-1. Go to your repository → Settings → Secrets and variables → Actions
-2. Click "New repository secret"
-3. Name: `ANTHROPIC_API_KEY`
-4. Value: Your Anthropic API key from [console.anthropic.com](https://console.anthropic.com)
+**Using GitHub CLI:**
+```bash
+# For Amp
+gh secret set AMP_API_KEY -b "your-amp-api-key"
 
-### 3. Configure (Optional)
-
-Edit the workflow environment variables to customize behavior:
-
-```yaml
-env:
-  REVIEW_EVENT: COMMENT          # COMMENT, APPROVE, or REQUEST_CHANGES
-  REVIEW_CLI_BIN: amp            # CLI tool to use
-  REVIEW_CLI_ARGS: -x            # CLI arguments
-  SYSTEM_PROMPT: |               # Customize the AI instructions
-    Review this patch like a thoughtful senior engineer.
-    Prioritize correctness, security, performance, readability, and tests.
-    Be concise and constructive. Praise good changes. Group related issues.
-    Consult the oracle. Make sure that the changes match the conventions in AGENT.md
+# For Claude Code  
+gh secret set ANTHROPIC_API_KEY -b "your-anthropic-api-key"
 ```
 
-## 🔧 Configuration Options
+**Using GitHub UI:**
+Go to your repository → Settings → Secrets and variables → Actions → New repository secret
+
+That's it! The workflow will automatically review new pull requests.
+
+## Configuration Options
 
 ### Review Behavior
 
@@ -58,13 +57,17 @@ env:
 
 ### System Prompt
 
-Customize the AI instructions by modifying `SYSTEM_PROMPT`. The prompt should:
-- Define the reviewer role and expertise level
-- Specify what to focus on (security, performance, etc.)
-- Set the tone (constructive, concise, etc.)
-- Include "Consult the oracle" for advanced Amp analysis
+Customize the AI instructions by modifying `SYSTEM_PROMPT`:
 
-### Advanced Configuration
+```yaml
+env:
+  SYSTEM_PROMPT: |
+    Review this patch like a thoughtful senior engineer.
+    Prioritize correctness, security, performance, readability, and tests.
+    Be concise and constructive. Praise good changes. Group related issues.
+```
+
+## Advanced Configuration
 
 ```yaml
 env:
@@ -84,22 +87,21 @@ env:
 
 And set the `ANTHROPIC_API_KEY` secret in your repository settings instead of `AMP_API_KEY`.
 
-## 📋 Requirements
+## Requirements
 
-- **AI API Key**: 
-  - For Amp: Get one from [ampcode.com](https://ampcode.com) and set as `AMP_API_KEY`
-  - For Claude Code: Get one from [console.anthropic.com](https://console.anthropic.com) and set as `ANTHROPIC_API_KEY`
-- **GitHub Actions**: Enabled on your repository
-- **Node.js 20**: Used by the workflow (automatically installed)
+- [ ] **AI API Key**: Choose Amp ([ampcode.com](https://ampcode.com)) or Claude Code ([console.anthropic.com](https://console.anthropic.com))
+- [ ] **GitHub Actions**: Enabled on your repository (free for public repos)
 
-## 🔒 Security Features
+*Node.js 20 is automatically installed by the workflow*
+
+## Security Features
 
 - **Secret Masking**: API keys are automatically masked in logs
 - **Minimal Permissions**: Only requires `contents: read`, `pull-requests: write`, `statuses: write`
 - **Timeout Protection**: Prevents runaway AI calls
 - **Fallback Responses**: Graceful degradation when AI calls fail
 
-## 🛠️ How It Works
+## How It Works
 
 1. **Trigger**: Runs on PR open, sync, reopen, or ready_for_review
 2. **Setup**: Installs Amp CLI and gathers PR context
@@ -108,7 +110,7 @@ And set the `ANTHROPIC_API_KEY` secret in your repository settings instead of `A
 5. **Post**: Creates GitHub review with summary and inline comments
 6. **Status**: Sets commit status based on review results
 
-## 📊 Example Output
+## Example Output
 
 The AI reviewer provides:
 
@@ -122,18 +124,18 @@ Example review summary:
 
 **Solid implementation with good error handling**, but consider these improvements:
 
-### ✅ Strengths
+### Strengths
 - Comprehensive input validation
 - Proper error handling patterns
 - Clear naming conventions
 
-### ⚠️ Concerns  
+### Concerns  
 - Missing unit tests for edge cases
 - Potential memory leak in event listeners
 - Consider using TypeScript for better type safety
 ```
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -161,7 +163,7 @@ env:
   DEBUG: true
 ```
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please:
 
@@ -178,11 +180,11 @@ Test changes by:
 3. Observing the AI review output
 4. Iterating based on results
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Amp](https://ampcode.com) for providing the AI review capabilities
 - GitHub Actions for the automation platform
