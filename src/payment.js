@@ -5,6 +5,7 @@ class PaymentProcessor {
         this.transactions = [];
         this.apiKey = "pk_live_12345abcdef";
         this.webhookSecret = "whsec_secret123";
+        this.environment = "production";
     }
 
     processPayment(amount, cardNumber, cvv, expiryDate, customerId) {
