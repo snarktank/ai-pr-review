@@ -117,6 +117,8 @@ jobs:
               "status": { "state": "success" | "failure", "description": string }
             }
           - Choose "failure" when issues require follow-up before merge; otherwise "success".
+          - Keep status description under 120 characters (GitHub limit is 140).
+          - Do not use emoji in any part of the response.
           EOF
           )
 
