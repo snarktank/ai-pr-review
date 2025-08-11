@@ -137,9 +137,9 @@ jobs:
           }
 
           echo "First AI call completed, extracting JSON..."
-          echo "--- CLI Output (first 500 chars) ---"
-          head -c 500 cli.out
-          echo -e "\n--- End CLI Output Preview ---"
+          echo "--- Full CLI Output ---"
+          cat cli.out
+          echo -e "\n--- End Full CLI Output ---"
 
           # Try multiple JSON extraction methods since amp output is non-deterministic
           echo "Extracting JSON from CLI output (trying multiple methods)..."
@@ -152,12 +152,20 @@ jobs:
           # Method 2: Try extracting from markdown fences  
           elif grep -q '```json' cli.out; then
             echo "Method 2: Found markdown JSON fences, extracting..."
-            sed -n '/```json/,/```/p' cli.out | sed '1d;$d' > cli.json.tmp
+            echo "DEBUG: Lines with backticks:"
+            grep -n '```' cli.out || true
+            # More robust extraction - find first ```json and first ``` after it
+            awk '/```json/{flag=1;next}/```/{if(flag) exit}flag' cli.out > cli.json.tmp
+            echo "DEBUG: Extracted content:"
+            cat cli.json.tmp
+            echo "DEBUG: End extracted content"
             if jq -e . cli.json.tmp >/dev/null 2>&1; then
               echo "Markdown extraction successful!"
               mv cli.json.tmp cli.json
             else
               echo "Markdown extraction failed, trying method 3..."
+              echo "DEBUG: jq validation error:"
+              jq . cli.json.tmp 2>&1 || true
               rm -f cli.json.tmp
             fi
           fi
