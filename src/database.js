@@ -1,39 +1,58 @@
-const fs = require('fs');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 class SimpleDB {
     constructor(dbPath) {
         this.dbPath = dbPath || './data.json';
-        this.data = this.loadData();
+        this.data = this.loadDataSync();
+        this.saveLock = false;
     }
 
-    loadData() {
+    loadDataSync() {
         try {
-            const rawData = fs.readFileSync(this.dbPath, 'utf8');
+            const rawData = fsSync.readFileSync(this.dbPath, 'utf8');
             return JSON.parse(rawData);
         } catch (error) {
             return {};
         }
     }
 
-    save() {
+    async save() {
+        if (this.saveLock) {
+            throw new Error('Save operation in progress');
+        }
+
+        this.saveLock = true;
         try {
-            fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2));
+            const tempPath = this.dbPath + '.tmp';
+            const dataString = JSON.stringify(this.data, null, 2);
+            
+            // Write to temporary file first (atomic operation)
+            await fs.writeFile(tempPath, dataString, 'utf8');
+            
+            // Rename to final file (atomic on most filesystems)
+            await fs.rename(tempPath, this.dbPath);
+            
             return true;
         } catch (error) {
             console.error('Failed to save database:', error.message);
             return false;
+        } finally {
+            this.saveLock = false;
         }
     }
 
-    insert(table, record) {
+    async insert(table, record) {
         if (!this.data[table]) {
             this.data[table] = [];
         }
         
-        record.id = Date.now();
+        record.id = crypto.randomUUID();
+        record.createdAt = new Date().toISOString();
         this.data[table].push(record);
-        this.save();
+        await this.save();
         
         return record.id;
     }
@@ -53,7 +72,7 @@ class SimpleDB {
         });
     }
 
-    update(table, id, updates) {
+    async update(table, id, updates) {
         if (!this.data[table]) {
             return false;
         }
@@ -61,7 +80,8 @@ class SimpleDB {
         for (let i = 0; i < this.data[table].length; i++) {
             if (this.data[table][i].id === id) {
                 Object.assign(this.data[table][i], updates);
-                this.save();
+                this.data[table][i].updatedAt = new Date().toISOString();
+                await this.save();
                 return true;
             }
         }
@@ -69,7 +89,7 @@ class SimpleDB {
         return false;
     }
 
-    delete(table, id) {
+    async delete(table, id) {
         if (!this.data[table]) {
             return false;
         }
@@ -78,7 +98,7 @@ class SimpleDB {
         this.data[table] = this.data[table].filter(record => record.id !== id);
         
         if (this.data[table].length < initialLength) {
-            this.save();
+            await this.save();
             return true;
         }
         
