@@ -49,9 +49,9 @@ jobs:
           set -euo pipefail
           if ! command -v "$REVIEW_CLI_BIN" >/dev/null 2>&1; then
             if [ "$REVIEW_CLI_BIN" = "amp" ]; then
-              echo "Installing amp via npm..."
-              npm install -g @sourcegraph/amp || {
-                echo "npm install failed; trying curl installer..." >&2
+              echo "Installing latest amp via npm..."
+              npm install -g @sourcegraph/amp@latest || {
+                echo "npm install failed; trying curl installer for latest..." >&2
                 curl -fsSL https://ampcode.com/install.sh | bash
               }
               command -v amp >/dev/null 2>&1 || { echo "amp not found after install" >&2; exit 1; }
@@ -125,6 +125,8 @@ jobs:
           # Run CLI in execute mode: diff on stdin, instruction as the message
           # Save the full output (may include prose) so we can extract JSON robustly
           echo "Running initial AI review..."
+          echo "Command: $REVIEW_CLI_BIN $REVIEW_CLI_ARGS"
+          echo "Diff size: $(wc -c < diff.patch) bytes"
           cat diff.patch | timeout 300 "$REVIEW_CLI_BIN" $REVIEW_CLI_ARGS "${SYSTEM_PROMPT}
 
           ${INSTRUCTION}" > cli.out || {
@@ -137,9 +139,10 @@ jobs:
           }
 
           echo "First AI call completed, extracting JSON..."
-          echo "--- CLI Output (first 500 chars) ---"
-          head -c 500 cli.out
-          echo -e "\n--- End CLI Output Preview ---"
+          echo "--- Full CLI Output ---"
+          cat cli.out
+          echo -e "\n--- End Full CLI Output ---"
+          echo "CLI output file size: $(wc -c < cli.out) bytes"
 
           # Try multiple JSON extraction methods since amp output is non-deterministic
           echo "Extracting JSON from CLI output (trying multiple methods)..."
