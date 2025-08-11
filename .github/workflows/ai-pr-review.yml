@@ -36,7 +36,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Verify tools
         run: |
@@ -220,6 +219,7 @@ jobs:
           fi
           STATE=$(jq -r '.state // "success"' status.json)
           DESC=$(jq -r '.description // "AI Review completed"' status.json)
+          SHA="${{ github.event.pull_request.head.sha }}"
           gh api \
             -X POST \
             repos/${{ github.repository }}/statuses/${SHA} \
