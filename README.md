@@ -1,4 +1,4 @@
-# AI PR Review Workflow
+# AI PR Review
 
 A robust GitHub Actions workflow that provides AI-powered code reviews using [Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Get intelligent, context-aware feedback on your pull requests automatically.
 
