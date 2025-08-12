@@ -99,7 +99,7 @@ jobs:
           if [ -n "${AMP_API_KEY:-}" ]; then echo "::add-mask::${AMP_API_KEY}"; fi
           if [ -n "${ANTHROPIC_API_KEY:-}" ]; then echo "::add-mask::${ANTHROPIC_API_KEY}"; fi
 
-          # Compose the instruction sent to cli (plain Markdown output)
+          # Compose the instruction sent to cli (XML output with example)
           INSTRUCTION=$(cat <<'EOF'
           You are performing a single-pass human-style PR review.
 
@@ -107,19 +107,39 @@ jobs:
           - You will receive a unified diff (the PR patch) via stdin.
           - Comment only on added lines; avoid spam.
 
-          Output format - plain Markdown with these sections:
-          
-          ## Summary
-          [Overall assessment in 2-3 sentences]
-          
-          ## Comments
-          [If you have specific inline comments, list them as:]
-          - **filename.ext:L123**: [comment about that line]
-          
-          ## Status
-          [Either "✅ LGTM" or "❌ Needs work" with brief reason]
-          
-          Keep it concise and constructive. Focus on correctness, security, and readability.
+          Output format - XML with this exact structure:
+
+          <review>
+            <summary>Overall assessment in 2-3 sentences. Focus on correctness, security, and readability.</summary>
+            <comments>
+              <comment>
+                <file>path/to/file.ext</file>
+                <line>123</line>
+                <body>Your comment about this specific line</body>
+              </comment>
+              <!-- Add more comment blocks as needed, or leave empty if no specific issues -->
+            </comments>
+            <status>
+              <state>success</state> <!-- or "failure" if issues need fixing before merge -->
+              <description>Brief reason (under 120 chars)</description>
+            </status>
+          </review>
+
+          Example good response:
+          <review>
+            <summary>This PR adds user authentication with proper input validation. The implementation looks solid overall with good error handling.</summary>
+            <comments>
+              <comment>
+                <file>auth.js</file>
+                <line>45</line>
+                <body>Consider using bcrypt.compare() instead of === for password comparison to prevent timing attacks.</body>
+              </comment>
+            </comments>
+            <status>
+              <state>success</state>
+              <description>LGTM with minor security suggestion</description>
+            </status>
+          </review>
           EOF
           )
 
@@ -129,26 +149,68 @@ jobs:
           echo "Diff size: $(wc -c < diff.patch) bytes"
           cat diff.patch | timeout 300 "$REVIEW_CLI_BIN" $REVIEW_CLI_ARGS "${SYSTEM_PROMPT}
 
-          ${INSTRUCTION}" > review.md || {
+          ${INSTRUCTION}" > ai_output.xml || {
             echo "AI call failed or timed out, creating fallback response"
-            echo "## Summary" > review.md
-            echo "AI review timed out or failed." >> review.md
-            echo "" >> review.md
-            echo "## Status" >> review.md
-            echo "✅ LGTM (fallback due to timeout)" >> review.md
+            cat > ai_output.xml <<'FALLBACK'
+          <review>
+            <summary>AI review timed out or failed.</summary>
+            <comments></comments>
+            <status>
+              <state>success</state>
+              <description>AI Review completed with timeout</description>
+            </status>
+          </review>
+          FALLBACK
           }
 
           echo "AI review completed"
-          echo "--- Review Output ---"
-          cat review.md
-          echo -e "\n--- End Review Output ---"
+          echo "--- XML Output ---"
+          cat ai_output.xml
+          echo -e "\n--- End XML Output ---"
 
-          # Parse status for commit status (look for ✅ or ❌)
-          if grep -q "❌" review.md; then
-            echo '{"state":"failure","description":"AI Review found issues"}' > status.json
+          # Extract sections using xmllint if available, otherwise use grep/sed
+          if command -v xmllint >/dev/null 2>&1; then
+            echo "Using xmllint for XML parsing..."
+            xmllint --xpath "//summary/text()" ai_output.xml 2>/dev/null > summary.txt || echo "No summary found" > summary.txt
+            xmllint --xpath "//state/text()" ai_output.xml 2>/dev/null > state.txt || echo "success" > state.txt
+            xmllint --xpath "//description/text()" ai_output.xml 2>/dev/null > description.txt || echo "AI Review completed" > description.txt
           else
-            echo '{"state":"success","description":"AI Review completed"}' > status.json
+            echo "Using sed/grep for XML parsing..."
+            sed -n 's/.*<summary>\(.*\)<\/summary>.*/\1/p' ai_output.xml > summary.txt
+            sed -n 's/.*<state>\(.*\)<\/state>.*/\1/p' ai_output.xml > state.txt
+            sed -n 's/.*<description>\(.*\)<\/description>.*/\1/p' ai_output.xml > description.txt
           fi
+
+          # Convert summary to markdown for review body
+          echo "## Summary" > review.md
+          cat summary.txt >> review.md
+          echo "" >> review.md
+          echo "## Comments" >> review.md
+          
+          # Extract and format comments if any exist
+          if grep -q "<comment>" ai_output.xml; then
+            echo "Processing inline comments..."
+            # Simple extraction - for each comment block, extract file, line, and body
+            grep -A 10 "<comment>" ai_output.xml | while IFS= read -r line; do
+              if echo "$line" | grep -q "<file>"; then
+                file=$(echo "$line" | sed 's/.*<file>\(.*\)<\/file>.*/\1/')
+                echo -n "- **$file"
+              elif echo "$line" | grep -q "<line>"; then
+                line_num=$(echo "$line" | sed 's/.*<line>\(.*\)<\/line>.*/\1/')
+                echo -n ":L$line_num**: "
+              elif echo "$line" | grep -q "<body>"; then
+                body=$(echo "$line" | sed 's/.*<body>\(.*\)<\/body>.*/\1/')
+                echo "$body"
+              fi
+            done >> review.md
+          else
+            echo "No specific inline comments." >> review.md
+          fi
+
+          # Create status JSON
+          STATE=$(cat state.txt)
+          DESC=$(cat description.txt)
+          echo "{\"state\":\"$STATE\",\"description\":\"$DESC\"}" > status.json
 
       - name: Post PR review
         env:
