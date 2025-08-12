@@ -192,37 +192,94 @@ jobs:
           if grep -q "<comment>" ai_output.xml; then
             echo "Processing inline comments for GitHub API..."
             
-            # Extract comments and convert line numbers to diff positions
-            # For new files, line number roughly equals diff position
-            awk '
-            BEGIN { in_comment = 0; comments = 0 }
-            /<comment>/ { in_comment = 1; file = ""; line = ""; body = ""; next }
-            /<\/comment>/ { 
-              if (in_comment && file != "" && line != "" && body != "") {
-                # Store for later processing
-                files[comments] = file
-                lines[comments] = line
-                bodies[comments] = body
-                comments++
-              }
-              in_comment = 0
-              next 
-            }
-            in_comment && /<file>/ { gsub(/<\/?file>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); file = $0; next }
-            in_comment && /<line>/ { gsub(/<\/?line>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); line = $0; next }
-            in_comment && /<body>/ { gsub(/<\/?body>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, "\\\""); body = $0; next }
-            END { 
-              print "["
-              for (i = 0; i < comments; i++) {
-                if (i > 0) printf ","
-                # Convert line number to estimated diff position (works for new files)
-                # GitHub API expects position in diff, not absolute line numbers
-                position = lines[i]
-                printf "{\"path\":\"%s\",\"position\":%s,\"body\":\"%s\"}", files[i], position, bodies[i]
-              }
-              print "]"
-            }
-            ' ai_output.xml > comments.json
+            # Extract comments with proper line mapping
+            # Build a line mapping from diff.patch first
+            echo "Building line number mapping from diff..."
+            
+            # Create line mapping: file:absolute_line -> diff_position
+            python3 -c "
+import re
+import sys
+
+# Parse diff to build line mapping
+line_mapping = {}
+current_file = None
+diff_position = 0
+file_line_number = 0
+
+try:
+    with open('diff.patch', 'r') as f:
+        for line in f:
+            line = line.rstrip()
+            
+            # Check for file header
+            if line.startswith('+++ b/'):
+                current_file = line[6:]  # Remove '+++ b/'
+                diff_position = 0
+                continue
+                
+            # Check for hunk header
+            if line.startswith('@@'):
+                match = re.search(r'@@.*\+(\d+),', line)
+                if match:
+                    file_line_number = int(match.group(1))
+                diff_position = 0
+                continue
+                
+            # Process diff lines
+            if line.startswith('+') and not line.startswith('+++'):
+                # Added line
+                diff_position += 1
+                if current_file:
+                    key = f'{current_file}:{file_line_number}'
+                    line_mapping[key] = diff_position
+                file_line_number += 1
+            elif line.startswith(' '):
+                # Context line
+                file_line_number += 1
+            # Skip removed lines (-)
+
+except FileNotFoundError:
+    pass
+
+# Now extract comments from XML and map line numbers
+import xml.etree.ElementTree as ET
+
+try:
+    tree = ET.parse('ai_output.xml')
+    root = tree.getroot()
+    
+    comments = []
+    for comment in root.findall('.//comment'):
+        file_elem = comment.find('file')
+        line_elem = comment.find('line')
+        body_elem = comment.find('body')
+        
+        if file_elem is not None and line_elem is not None and body_elem is not None:
+            file_path = file_elem.text.strip()
+            line_num = int(line_elem.text.strip())
+            body = body_elem.text.strip()
+            
+            # Map to diff position
+            key = f'{file_path}:{line_num}'
+            position = line_mapping.get(key, line_num)  # Fallback to line number
+            
+            comments.append({
+                'path': file_path,
+                'position': position,
+                'body': body.replace('\"', '\\\"')
+            })
+    
+    # Output JSON
+    import json
+    with open('comments.json', 'w') as f:
+        json.dump(comments, f)
+        
+except Exception as e:
+    # Fallback to empty comments
+    with open('comments.json', 'w') as f:
+        f.write('[]')
+"
             
             echo "Generated comments JSON:"
             cat comments.json
