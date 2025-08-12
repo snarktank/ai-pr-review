@@ -203,11 +203,34 @@ jobs:
           cat ai_output.xml
           echo -e "\n--- End XML Output ---"
 
-          # Extract sections using xmllint (safer than regex parsing)
-          echo "Using xmllint for XML parsing..."
-          xmllint --xpath "//summary/text()" ai_output.xml 2>/dev/null > summary.txt || echo "No summary found" > summary.txt
-          xmllint --xpath "//state/text()" ai_output.xml 2>/dev/null > state.txt || echo "success" > state.txt
-          xmllint --xpath "//description/text()" ai_output.xml 2>/dev/null > description.txt || echo "AI Review completed" > description.txt
+          # Extract sections using Node.js for reliable parsing
+          echo "Using Node.js for XML parsing..."
+          node -e "
+          const fs = require('fs');
+          try {
+            const xmlText = fs.readFileSync('ai_output.xml', 'utf8');
+            
+            // Extract summary
+            const summaryMatch = xmlText.match(/<summary>([\s\S]*?)<\/summary>/);
+            const summary = summaryMatch ? summaryMatch[1].trim() : 'No summary found';
+            fs.writeFileSync('summary.txt', summary);
+            
+            // Extract state  
+            const stateMatch = xmlText.match(/<state>([\s\S]*?)<\/state>/);
+            const state = stateMatch ? stateMatch[1].trim() : 'success';
+            fs.writeFileSync('state.txt', state);
+            
+            // Extract description
+            const descMatch = xmlText.match(/<description>([\s\S]*?)<\/description>/);
+            const desc = descMatch ? descMatch[1].trim() : 'AI Review completed';
+            fs.writeFileSync('description.txt', desc);
+            
+          } catch (error) {
+            fs.writeFileSync('summary.txt', 'XML parsing failed');
+            fs.writeFileSync('state.txt', 'success');
+            fs.writeFileSync('description.txt', 'AI Review completed');
+          }
+          "
 
           # Convert summary to markdown for review body
           echo "## Summary" > review.md
