@@ -20,6 +20,7 @@ env:
     Review this patch like a thoughtful senior engineer.
     Prioritize correctness, security, performance, readability, and tests.
     Be concise and constructive. Praise good changes. Group related issues.
+    If a AGENT.md or CLAUDE.md file exists, make sure the code complies with it.
 
 jobs:
   review:
