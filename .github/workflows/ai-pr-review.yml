@@ -150,7 +150,7 @@ jobs:
           echo "Command: $REVIEW_CLI_BIN $REVIEW_CLI_ARGS"
           echo "Diff size: $(wc -c < diff.patch) bytes"
           
-          MAX_RETRIES=3
+          MAX_RETRIES=5
           RETRY_COUNT=0
           
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
@@ -181,7 +181,7 @@ jobs:
           
           # If all retries failed, create fallback response
           if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-            echo "All retry attempts failed, creating fallback response"
+            echo "All 5 retry attempts failed, creating fallback response"
             cat > ai_output.xml <<'FALLBACK'
           <review>
             <summary>AI review failed after multiple attempts.</summary>
