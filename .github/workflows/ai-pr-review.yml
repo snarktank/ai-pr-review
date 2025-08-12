@@ -119,6 +119,7 @@ jobs:
                 <body>Your comment about this specific line</body>
               </comment>
               <!-- Add more comment blocks as needed, or leave empty if no specific issues -->
+              <!-- IMPORTANT: Use line numbers from the diff context, not absolute file line numbers -->
             </comments>
             <status>
               <state>success</state> <!-- or "failure" if issues need fixing before merge -->
@@ -185,27 +186,46 @@ jobs:
           # Convert summary to markdown for review body
           echo "## Summary" > review.md
           cat summary.txt >> review.md
-          echo "" >> review.md
-          echo "## Comments" >> review.md
-          
-          # Extract and format comments if any exist
+
+          # Extract inline comments for GitHub API
+          echo "[]" > comments.json
           if grep -q "<comment>" ai_output.xml; then
-            echo "Processing inline comments..."
-            # Simple extraction - for each comment block, extract file, line, and body
-            grep -A 10 "<comment>" ai_output.xml | while IFS= read -r line; do
-              if echo "$line" | grep -q "<file>"; then
-                file=$(echo "$line" | sed 's/.*<file>\(.*\)<\/file>.*/\1/')
-                echo -n "- **$file"
-              elif echo "$line" | grep -q "<line>"; then
-                line_num=$(echo "$line" | sed 's/.*<line>\(.*\)<\/line>.*/\1/')
-                echo -n ":L$line_num**: "
-              elif echo "$line" | grep -q "<body>"; then
-                body=$(echo "$line" | sed 's/.*<body>\(.*\)<\/body>.*/\1/')
-                echo "$body"
-              fi
-            done >> review.md
-          else
-            echo "No specific inline comments." >> review.md
+            echo "Processing inline comments for GitHub API..."
+            
+            # Extract comments and convert line numbers to diff positions
+            # For new files, line number roughly equals diff position
+            awk '
+            BEGIN { in_comment = 0; comments = 0 }
+            /<comment>/ { in_comment = 1; file = ""; line = ""; body = ""; next }
+            /<\/comment>/ { 
+              if (in_comment && file != "" && line != "" && body != "") {
+                # Store for later processing
+                files[comments] = file
+                lines[comments] = line
+                bodies[comments] = body
+                comments++
+              }
+              in_comment = 0
+              next 
+            }
+            in_comment && /<file>/ { gsub(/<\/?file>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); file = $0; next }
+            in_comment && /<line>/ { gsub(/<\/?line>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); line = $0; next }
+            in_comment && /<body>/ { gsub(/<\/?body>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, "\\\""); body = $0; next }
+            END { 
+              print "["
+              for (i = 0; i < comments; i++) {
+                if (i > 0) printf ","
+                # Convert line number to estimated diff position (works for new files)
+                # GitHub API expects position in diff, not absolute line numbers
+                position = lines[i]
+                printf "{\"path\":\"%s\",\"position\":%s,\"body\":\"%s\"}", files[i], position, bodies[i]
+              }
+              print "]"
+            }
+            ' ai_output.xml > comments.json
+            
+            echo "Generated comments JSON:"
+            cat comments.json
           fi
 
           # Create status JSON
@@ -219,11 +239,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Build review payload with just the markdown body
+          # Build review payload with body + comments array
           jq -n \
             --arg event "${REVIEW_EVENT}" \
             --arg body "$(cat review.md)" \
-            '{ event: $event, body: $body }' > review_payload.json
+            --argjson comments "$(cat comments.json)" \
+            '{ event: $event, body: $body, comments: $comments }' > review_payload.json
 
           # Post the review
           gh api \
