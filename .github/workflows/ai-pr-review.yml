@@ -145,25 +145,54 @@ jobs:
           EOF
           )
 
-          # Run CLI in execute mode: diff on stdin, instruction as the message
+          # Run CLI in execute mode with retries for malformed/empty output
           echo "Running AI review..."
           echo "Command: $REVIEW_CLI_BIN $REVIEW_CLI_ARGS"
           echo "Diff size: $(wc -c < diff.patch) bytes"
-          cat diff.patch | timeout 300 "$REVIEW_CLI_BIN" $REVIEW_CLI_ARGS "${SYSTEM_PROMPT}
+          
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "Attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES..."
+            
+            if cat diff.patch | timeout 300 "$REVIEW_CLI_BIN" $REVIEW_CLI_ARGS "${SYSTEM_PROMPT}
 
-          ${INSTRUCTION}" > ai_output.xml || {
-            echo "AI call failed or timed out, creating fallback response"
+          ${INSTRUCTION}" > ai_output.xml; then
+              # Check if output contains valid XML with required elements
+              if grep -q "<review>" ai_output.xml && grep -q "<summary>" ai_output.xml && grep -q "</review>" ai_output.xml; then
+                echo "Valid XML review received"
+                break
+              else
+                echo "Invalid or empty XML received, retrying..."
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+              fi
+            else
+              echo "AI call failed, retrying..."
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+            fi
+            
+            # Add delay between retries
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "Waiting 5 seconds before retry..."
+              sleep 5
+            fi
+          done
+          
+          # If all retries failed, create fallback response
+          if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo "All retry attempts failed, creating fallback response"
             cat > ai_output.xml <<'FALLBACK'
           <review>
-            <summary>AI review timed out or failed.</summary>
+            <summary>AI review failed after multiple attempts.</summary>
             <comments></comments>
             <status>
               <state>success</state>
-              <description>AI Review completed with timeout</description>
+              <description>AI Review completed with fallback</description>
             </status>
           </review>
           FALLBACK
-          }
+          fi
 
           echo "AI review completed"
           echo "--- XML Output ---"
