@@ -247,8 +247,7 @@ jobs:
                     path: file,
                     line: line,
                     side: 'RIGHT',
-                    body: body.replace(/\"/g, '\\\"'),
-                    commit_id: process.env.SHA
+                    body: body.replace(/\"/g, '\\\"')
                   });
                 }
               }
