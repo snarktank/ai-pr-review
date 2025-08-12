@@ -23,7 +23,17 @@
   },
   "homepage": "https://github.com/snarktank/ai-pr-review-workflow#readme",
   "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
     "test": "echo \"See CONTRIBUTING.md for testing instructions\" && exit 0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   },
   "engines": {
     "node": ">=20"
