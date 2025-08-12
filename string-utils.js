@@ -1,5 +1,5 @@
 /**
- * String manipulation utilities
+ * String manipulation utilities for common operations
  */
 
 function capitalize(str) {
