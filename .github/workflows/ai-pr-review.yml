@@ -192,16 +192,15 @@ jobs:
           if grep -q "<comment>" ai_output.xml; then
             echo "Processing inline comments for GitHub API..."
             
-            # Extract comments and convert line numbers to diff positions
-            # For new files, line number roughly equals diff position
+            # Extract comments and apply simple line adjustment
             awk '
             BEGIN { in_comment = 0; comments = 0 }
             /<comment>/ { in_comment = 1; file = ""; line = ""; body = ""; next }
             /<\/comment>/ { 
               if (in_comment && file != "" && line != "" && body != "") {
-                # Store for later processing
                 files[comments] = file
-                lines[comments] = line
+                # Apply +1 adjustment to fix common off-by-one issue
+                lines[comments] = line + 1  
                 bodies[comments] = body
                 comments++
               }
@@ -215,10 +214,7 @@ jobs:
               print "["
               for (i = 0; i < comments; i++) {
                 if (i > 0) printf ","
-                # Convert line number to estimated diff position (works for new files)
-                # GitHub API expects position in diff, not absolute line numbers
-                position = lines[i]
-                printf "{\"path\":\"%s\",\"position\":%s,\"body\":\"%s\"}", files[i], position, bodies[i]
+                printf "{\"path\":\"%s\",\"position\":%s,\"body\":\"%s\"}", files[i], lines[i], bodies[i]
               }
               print "]"
             }
