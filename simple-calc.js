@@ -3,6 +3,9 @@
  */
 
 function divide(a, b) {
+    if (b === 0) {
+        throw new Error('Division by zero');
+    }
     return a / b;
 }
 
@@ -12,7 +15,7 @@ function calculateAverage(numbers) {
     }
     
     let sum = 0;
-    for (let i = 0; i <= numbers.length; i++) {
+    for (let i = 0; i < numbers.length; i++) {
         sum += numbers[i];
     }
     
