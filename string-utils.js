@@ -3,6 +3,7 @@
  */
 
 function capitalize(str) {
+    if (typeof str !== 'string') return '';
     return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
@@ -23,7 +24,7 @@ function truncate(str, length) {
 }
 
 function wordCount(str) {
-    return str.split(' ').length;
+    return str.trim().split(/\s+/).filter(Boolean).length;
 }
 
 module.exports = {
