@@ -25,6 +25,10 @@ env:
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: ai-pr-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -199,18 +203,11 @@ jobs:
           cat ai_output.xml
           echo -e "\n--- End XML Output ---"
 
-          # Extract sections using xmllint if available, otherwise use grep/sed
-          if command -v xmllint >/dev/null 2>&1; then
-            echo "Using xmllint for XML parsing..."
-            xmllint --xpath "//summary/text()" ai_output.xml 2>/dev/null > summary.txt || echo "No summary found" > summary.txt
-            xmllint --xpath "//state/text()" ai_output.xml 2>/dev/null > state.txt || echo "success" > state.txt
-            xmllint --xpath "//description/text()" ai_output.xml 2>/dev/null > description.txt || echo "AI Review completed" > description.txt
-          else
-            echo "Using sed/grep for XML parsing..."
-            sed -n 's/.*<summary>\(.*\)<\/summary>.*/\1/p' ai_output.xml > summary.txt
-            sed -n 's/.*<state>\(.*\)<\/state>.*/\1/p' ai_output.xml > state.txt
-            sed -n 's/.*<description>\(.*\)<\/description>.*/\1/p' ai_output.xml > description.txt
-          fi
+          # Extract sections using xmllint (safer than regex parsing)
+          echo "Using xmllint for XML parsing..."
+          xmllint --xpath "//summary/text()" ai_output.xml 2>/dev/null > summary.txt || echo "No summary found" > summary.txt
+          xmllint --xpath "//state/text()" ai_output.xml 2>/dev/null > state.txt || echo "success" > state.txt
+          xmllint --xpath "//description/text()" ai_output.xml 2>/dev/null > description.txt || echo "AI Review completed" > description.txt
 
           # Convert summary to markdown for review body
           echo "## Summary" > review.md
@@ -250,7 +247,8 @@ jobs:
                     path: file,
                     line: line,
                     side: 'RIGHT',
-                    body: body.replace(/\"/g, '\\\"')
+                    body: body.replace(/\"/g, '\\\"'),
+                    commit_id: process.env.SHA
                   });
                 }
               }
