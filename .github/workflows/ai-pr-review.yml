@@ -192,33 +192,106 @@ jobs:
           if grep -q "<comment>" ai_output.xml; then
             echo "Processing inline comments for GitHub API..."
             
-            # Extract comments and apply simple line adjustment
-            awk '
-            BEGIN { in_comment = 0; comments = 0 }
-            /<comment>/ { in_comment = 1; file = ""; line = ""; body = ""; next }
-            /<\/comment>/ { 
-              if (in_comment && file != "" && line != "" && body != "") {
-                files[comments] = file
-                # Apply +1 adjustment to fix common off-by-one issue
-                lines[comments] = line + 1  
-                bodies[comments] = body
-                comments++
+            # Build accurate line number to diff position mapping
+            echo "Building precise line number to diff position mapping..."
+            
+            node -e "
+            const fs = require('fs');
+            
+            // Parse diff patch to build accurate line number to position mapping
+            function buildLineMapping(patchText) {
+              const fileMaps = {};
+              const lines = patchText.split('\n');
+              let currentFile = null;
+              let newLineNumber = 0;
+              let position = 0;
+              let inHunk = false;
+              
+              for (const line of lines) {
+                // File header: +++ b/path/to/file
+                if (line.startsWith('+++ b/')) {
+                  currentFile = line.substring(6);
+                  fileMaps[currentFile] = {};
+                  continue;
+                }
+                
+                // Hunk header: @@ -old_start,old_count +new_start,new_count @@
+                if (line.startsWith('@@')) {
+                  const match = line.match(/@@ -\d+,\d+ \+(\d+),\d+ @@/);
+                  if (match) {
+                    newLineNumber = parseInt(match[1]);
+                    position = 0;
+                    inHunk = true;
+                  }
+                  continue;
+                }
+                
+                if (inHunk && currentFile) {
+                  position++;
+                  
+                  if (line.startsWith('+')) {
+                    // Added line: map new file line number to diff position
+                    fileMaps[currentFile][newLineNumber] = position;
+                    newLineNumber++;
+                  } else if (line.startsWith(' ')) {
+                    // Context line: both line number and position advance
+                    newLineNumber++;
+                  } else if (line.startsWith('-')) {
+                    // Deleted line: only position advances
+                    // newLineNumber stays the same
+                  } else if (line.trim() === '') {
+                    // Empty line might end the hunk
+                    inHunk = false;
+                  }
+                }
               }
-              in_comment = 0
-              next 
+              
+              return fileMaps;
             }
-            in_comment && /<file>/ { gsub(/<\/?file>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); file = $0; next }
-            in_comment && /<line>/ { gsub(/<\/?line>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); line = $0; next }
-            in_comment && /<body>/ { gsub(/<\/?body>/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, "\\\""); body = $0; next }
-            END { 
-              print "["
-              for (i = 0; i < comments; i++) {
-                if (i > 0) printf ","
-                printf "{\"path\":\"%s\",\"position\":%s,\"body\":\"%s\"}", files[i], lines[i], bodies[i]
+            
+            try {
+              // Read and parse the diff
+              const patchText = fs.readFileSync('diff.patch', 'utf8');
+              const lineMapping = buildLineMapping(patchText);
+              
+              // Read and parse XML comments
+              const xmlText = fs.readFileSync('ai_output.xml', 'utf8');
+              const comments = [];
+              
+              // Extract comment blocks
+              const commentBlocks = xmlText.match(/<comment>[\s\S]*?<\/comment>/g) || [];
+              
+              for (const block of commentBlocks) {
+                const fileMatch = block.match(/<file>(.*?)<\/file>/);
+                const lineMatch = block.match(/<line>(.*?)<\/line>/);
+                const bodyMatch = block.match(/<body>(.*?)<\/body>/);
+                
+                if (fileMatch && lineMatch && bodyMatch) {
+                  const file = fileMatch[1].trim();
+                  const line = parseInt(lineMatch[1].trim());
+                  const body = bodyMatch[1].trim();
+                  
+                  // Use mapping to get exact diff position
+                  const position = lineMapping[file] && lineMapping[file][line] 
+                    ? lineMapping[file][line] 
+                    : line; // Fallback if mapping not found
+                  
+                  comments.push({
+                    path: file,
+                    position: position,
+                    body: body.replace(/\"/g, '\\\"')
+                  });
+                }
               }
-              print "]"
+              
+              // Write result
+              fs.writeFileSync('comments.json', JSON.stringify(comments));
+              
+            } catch (error) {
+              // Fallback to empty array
+              fs.writeFileSync('comments.json', '[]');
             }
-            ' ai_output.xml > comments.json
+            "
             
             echo "Generated comments JSON:"
             cat comments.json
